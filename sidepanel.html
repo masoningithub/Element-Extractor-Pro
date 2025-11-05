@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Element Extractor Pro</title>
+    <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Element Extractor Pro</h1>
+        </header>
+
+        <section class="config-section">
+            <label for="page-name">Page Name:</label>
+            <input type="text" id="page-name" placeholder="Auto-generated page name" />
+        </section>
+
+        <section class="controls-section">
+            <h3>1. Selection</h3>
+            <div class="button-group">
+                <button id="btn-auto" class="btn btn-auto">Auto Select</button>
+                <button id="btn-manual" class="btn btn-manual">Manual Mode</button>
+            </div>
+            <div class="stats-inline stats-compact">
+                <span>Selected: <span id="stat-selected">0</span></span>
+                <span>Extractions: <span id="stat-extractions">0</span></span>
+                <span>Inputs: <span id="stat-inputs">0</span></span>
+                <span>Buttons: <span id="stat-buttons">0</span></span>
+                <span>Selects: <span id="stat-selects">0</span></span>
+            </div>
+        </section>
+
+        <section class="status-section">
+            <div id="status" class="status-box">
+                Ready - Click "Auto Select" to start
+            </div>
+
+            <!-- AI Progress Indicator -->
+            <div id="ai-progress" style="display:none; margin-top:12px;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:11px; color:#64748b;">
+                    <span id="progress-text">Generating...</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="controls-section">
+            <h3>2. Extraction</h3>
+            <div class="button-group">
+                <button id="btn-extract" class="btn btn-extract">Extract (<span id="extract-count">0</span>)</button>
+                <button id="btn-clear" class="btn btn-clear">Clear All & Exit</button>
+            </div>
+        </section>
+
+        <section class="controls-section">
+            <h3>3. Conversion & AI</h3>
+            <div class="button-group">
+                <button id="btn-generate" class="btn btn-generate">Generate Sample Data</button>
+                <button id="btn-entry" class="btn btn-primary">Entry (Test JSON)</button>
+            </div>
+            <div class="button-group">
+                <button id="btn-convert" class="btn btn-convert">Convert to JS</button>
+                <button id="btn-download" class="btn btn-download">Download JSON</button>
+            </div>
+        </section>
+
+        
+
+        <section class="preview-section">
+            <h3>Preview & Edit</h3>
+            <div class="button-group" style="margin-bottom:6px;">
+                <button id="btn-load-all" class="btn btn-secondary">Load All Extractions</button>
+                <button id="btn-save-session" class="btn btn-primary">Apply Changes</button>
+            </div>
+            <div id="preview-list" class="preview-list"></div>
+        </section>
+
+        
+
+        <section class="controls-section settings-section">
+            <div class="settings-header" id="settings-toggle">
+                <h3>Settings</h3>
+                <span class="toggle-icon">▼</span>
+            </div>
+            <div class="settings-content" id="settings-content">
+                <div class="setting-group">
+                    <label>Theme</label>
+                    <div class="button-group">
+                        <button id="btn-theme" class="btn btn-secondary">Toggle Dark Mode</button>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Highlight Colors</label>
+                    <div class="button-group">
+                        <input type="text" id="color-selected" placeholder="Selected (e.g., #ff4444)" />
+                        <input type="text" id="color-hover" placeholder="Hover (e.g., #2196F3)" />
+                    </div>
+                    <button id="btn-apply-colors" class="btn btn-primary" style="width:100%; margin-top:6px;">Apply Colors</button>
+                </div>
+
+                <div class="setting-group">
+                    <label>Label Mode</label>
+                    <div class="button-group">
+                        <select id="label-mode">
+                            <option value="original" selected>Original</option>
+                            <option value="enhanced">Enhanced</option>
+                        </select>
+                        <button id="btn-apply-label-mode" class="btn btn-primary">Apply</button>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label for="api-key">API Key</label>
+                    <div style="position:relative;">
+                        <input type="password" id="api-key" placeholder="sk-..." />
+                        <button id="toggle-api-key" class="btn-icon" style="position:absolute; right:8px; top:8px; background:transparent; border:none; cursor:pointer; font-size:16px;">
+                            👁️
+                        </button>
+                    </div>
+                    <div class="button-group" style="margin-top:8px;">
+                        <select id="ai-provider">
+                            <option value="openai">OpenAI</option>
+                            <option value="azure">Azure OpenAI</option>
+                            <option value="deepseek" selected>DeepSeek</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google (Gemini)</option>
+                        </select>
+                        <input type="text" id="ai-model" placeholder="Model name (optional)" />
+                    </div>
+
+                    <!-- Azure-specific settings (hidden by default) -->
+                    <div id="azure-settings" style="display:none; margin-top:12px; padding:12px; background:#f8fafc; border-radius:8px;">
+                        <label style="font-size:11px; color:#64748b;">Azure Configuration</label>
+                        <input type="text" id="azure-endpoint" placeholder="https://YOUR-RESOURCE.cognitiveservices.azure.com/" style="margin-top:6px;" />
+                        <input type="text" id="azure-deployment" placeholder="Deployment name (e.g., gpt-4)" style="margin-top:6px;" />
+                        <input type="text" id="azure-api-version" value="2024-02-01" placeholder="API version" style="margin-top:6px;" />
+                        <small style="color:#64748b;">Required for Azure OpenAI. Get these from Azure Portal.</small>
+                    </div>
+
+                    <button id="btn-apply-api" class="btn btn-primary" style="width:100%; margin-top:6px;">Apply API Settings</button>
+                    <small>Your API key is stored locally and never shared</small>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

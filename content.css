@@ -1,0 +1,61 @@
+:root {
+    --ee-selected: #ff4444;
+    --ee-available: #4CAF50;
+    --ee-hover: #2196F3;
+}
+
+.ee-selected {
+    outline: 3px solid var(--ee-selected) !important;
+    outline-offset: 2px !important;
+    background-color: rgba(255, 68, 68, 0.1) !important;
+    box-shadow: 0 0 8px rgba(255, 68, 68, 0.6) !important;
+    transition: outline-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ee-available {
+    outline: 2px dashed var(--ee-available) !important;
+    outline-offset: 1px !important;
+    cursor: pointer !important;
+}
+
+.ee-hovered {
+    outline: 3px solid var(--ee-hover) !important;
+    outline-offset: 2px !important;
+    background-color: rgba(33, 150, 243, 0.15) !important;
+    cursor: crosshair !important;
+    position: relative !important;
+}
+
+.ee-tooltip {
+    position: absolute !important;
+    background: #333 !important;
+    color: white !important;
+    padding: 8px 12px !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    white-space: nowrap !important;
+    z-index: 2147483647 !important;
+    pointer-events: none !important;
+    max-width: 350px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+    line-height: 1.4 !important;
+}
+
+/* Number badges for selected elements */
+.ee-number-badge {
+    position: absolute !important;
+    top: -10px !important;
+    left: -10px !important;
+    background: var(--ee-selected) !important;
+    color: white !important;
+    border-radius: 999px !important;
+    padding: 2px 6px !important;
+    font-size: 10px !important;
+    z-index: 2147483647 !important;
+    pointer-events: none !important;
+}
+
+.ee-tooltip div {
+    margin: 2px 0 !important;
+}

@@ -1,0 +1,120 @@
+function renderTree(container) {
+    container.textContent = '';
+    lastPreview = [];
+    const pages = (currentLoadedTree && currentLoadedTree.pages) || [];
+    pages.forEach(page => {
+        const dPage = document.createElement('details');
+        dPage.className = 'tree-page'; dPage.open = true;
+        const sPage = document.createElement('summary'); sPage.textContent = page.pageName || page.pageId;
+        const metaP = document.createElement('span'); metaP.className = 'meta';
+        const groups = page.groups || []; const elemCount = groups.reduce((s,g)=> s + (g.elements||[]).length, 0);
+        metaP.textContent = ` • groups: ${groups.length} • elements: ${elemCount}`;
+        sPage.appendChild(metaP); dPage.appendChild(sPage);
+        // Page-level actions
+        const pageActions = document.createElement('div');
+        pageActions.style.margin = '6px 0 6px 0';
+        const btnNewGroup = document.createElement('button'); btnNewGroup.textContent = 'New Group';
+        btnNewGroup.addEventListener('click', () => {
+            const tempId = pendingTempGroupIdCounter--;
+            if (!page.groups) page.groups = [];
+            page.groups.push({ groupId: tempId, timestamp: new Date().toISOString(), groupName: '', elements: [] });
+            pendingGroupAdds.push({ pageId: page.pageId, tempId });
+            const ovStore = await chrome.storage.local.get('label_overrides'); currentOverrides = ovStore.label_overrides || {}; renderTree(container);
+        });
+        pageActions.appendChild(btnNewGroup);
+        dPage.appendChild(pageActions);
+
+        groups.forEach(group => {
+            const dGroup = document.createElement('details'); dGroup.className = 'tree-group'; dGroup.open = true;
+            const sGroup = document.createElement('summary');
+            sGroup.textContent = `Group ${group.groupId}`;
+            const metaG = document.createElement('span'); metaG.className='meta'; metaG.textContent = group.timestamp?` • ${group.timestamp}`:''; sGroup.appendChild(metaG);
+            dGroup.appendChild(sGroup);
+
+            const groupNameWrap = document.createElement('div'); groupNameWrap.style.margin = '6px 0 0 0';
+            const groupNameInput = document.createElement('input'); groupNameInput.className='edit-input'; groupNameInput.placeholder='Group name (optional)'; groupNameInput.style.minWidth='220px';
+            groupNameInput.value = group.groupName || '';
+            groupNameInput.addEventListener('change', () => {
+                if (!pendingGroupNames[page.pageId]) pendingGroupNames[page.pageId] = {};
+                pendingGroupNames[page.pageId][group.groupId] = groupNameInput.value.trim();
+            });
+            // Delete empty group
+            if ((group.elements||[]).length === 0) {
+                const delBtn = document.createElement('button'); delBtn.textContent = 'Delete Group'; delBtn.style.marginLeft = '8px';
+                delBtn.addEventListener('click', () => {
+                    pendingGroupRemoves.push({ pageId: page.pageId, groupId: group.groupId });
+                    // Remove from in-memory tree view
+                    const idx = page.groups.findIndex(g => g.groupId === group.groupId);
+                    if (idx >= 0) page.groups.splice(idx,1);
+                    const ovStore = await chrome.storage.local.get('label_overrides'); currentOverrides = ovStore.label_overrides || {}; renderTree(container);
+                });
+                groupNameWrap.appendChild(delBtn);
+            }
+            groupNameWrap.appendChild(groupNameInput); dGroup.appendChild(groupNameWrap);
+
+            const list = document.createElement('div'); list.className='tree-elements';
+            const groupsForSelect = groups.map(g => ({ id: g.groupId, name: g.groupName||`Group ${g.groupId}` }));
+
+            (group.elements||[]).forEach((el, elIndex) => {
+                const row = document.createElement('div'); row.className='preview-item card';
+                const labelInput = document.createElement('input'); labelInput.className='edit-input preview-label'; labelInput.placeholder='Label'; labelInput.value=computeDisplayLabel(el.label,{attributes:el.attributes})||'';
+                const sampleInput = document.createElement('input'); sampleInput.className='edit-input'; sampleInput.placeholder='Sample Value'; sampleInput.value = (currentOverrides[el.selector]?.sample || el.sample || '');
+                const typeSelect = document.createElement('select'); typeSelect.className='edit-input';
+                ;['Input','Button','Select','RadioButton','Checkbox'].forEach(t => { const o=document.createElement('option'); o.value=t; o.textContent=t; typeSelect.appendChild(o); });
+                typeSelect.value = mapTypeToOption(el.type);
+                typeSelect.addEventListener('change', () => {
+                    const key = elementKey(el);
+                    const existing = pendingTypeChanges.find(p => p.pageId===page.pageId && p.groupId===group.groupId && p.key===key);
+                    if (existing) existing.type = typeSelect.value; else pendingTypeChanges.push({ pageId: page.pageId, groupId: group.groupId, key, type: typeSelect.value });
+                });
+                const selectorWrap = document.createElement('div'); selectorWrap.className='preview-selector';
+                const contextInput = document.createElement('input'); contextInput.className='edit-selector'; contextInput.placeholder='ContextDocument (iframe or document)'; contextInput.value=el.contextDocument||'document'; contextInput.style.marginBottom='4px';
+                const selectorInput = document.createElement('input'); selectorInput.className='edit-selector'; selectorInput.placeholder='Selector'; selectorInput.value=el.selector||'';
+                const groupSelect = document.createElement('select'); groupSelect.className='edit-input'; groupSelect.style.minWidth='160px';
+                groupsForSelect.forEach(opt=>{ const o=document.createElement('option'); o.value=String(opt.id); o.textContent=opt.name; if(opt.id===group.groupId)o.selected=true; groupSelect.appendChild(o); });
+                const orderInput = document.createElement('input'); orderInput.type='number'; orderInput.min='0'; orderInput.value=String(elIndex); orderInput.className='edit-input'; orderInput.style.width='80px';
+                const status = document.createElement('span'); status.textContent='...'; status.className='selector-multi';
+                const actions = document.createElement('div'); actions.className='preview-actions';
+                const btnView = document.createElement('button'); btnView.textContent='View'; btnView.addEventListener('click', async()=>{ const rawIframeSelector = extractRawIframeSelector(contextInput.value); const fullSel = rawIframeSelector ? `${rawIframeSelector} >>> ${selectorInput.value}` : selectorInput.value; await sendBroadcastToFrames('PREVIEW_HIGHLIGHT',{ rawSelector: computeRawSelector(fullSel)}); });
+                const btnRemove = document.createElement('button'); btnRemove.textContent='Remove'; btnRemove.addEventListener('click', ()=>{ pendingDeletes.push({ pageId: page.pageId, groupId: group.groupId, key: elementKey(el)}); row.style.opacity='0.5'; });
+                const btnInsert = document.createElement('button'); btnInsert.textContent='Insert'; btnInsert.addEventListener('click',()=>{
+                    const newRow=document.createElement('div'); newRow.className='preview-item card'; newRow.style.border='1px dashed #cbd5e1';
+                    const nl=document.createElement('input'); nl.className='edit-input preview-label'; nl.placeholder='Label';
+                    const ns=document.createElement('input'); ns.className='edit-selector'; ns.placeholder='Selector';
+                    const nt=document.createElement('input'); nt.className='edit-input'; nt.placeholder='Type (e.g., input[text])';
+                    const add=document.createElement('button'); add.textContent='Add'; add.addEventListener('click',()=>{ pendingInserts.push({ pageId: page.pageId, groupId: group.groupId, element:{ label:nl.value, selector:ns.value, type:nt.value }}); newRow.remove(); });
+                    newRow.appendChild(nl); newRow.appendChild(nt); newRow.appendChild(ns); newRow.appendChild(add); list.insertBefore(newRow, row.nextSibling);
+                });
+                actions.appendChild(btnView); actions.appendChild(btnRemove); actions.appendChild(btnInsert);
+
+                // Persist label/selector/context overrides
+                labelInput.addEventListener('change', async()=>{ const store=await chrome.storage.local.get('label_overrides'); const ov=store.label_overrides||{}; ov[el.selector]={ ...(ov[el.selector]||{}), label: labelInput.value }; await chrome.storage.local.set({label_overrides:ov}); });
+                sampleInput.addEventListener('change', async()=>{ const store=await chrome.storage.local.get('label_overrides'); const ov=store.label_overrides||{}; ov[el.selector]={ ...(ov[el.selector]||{}), sample: sampleInput.value }; await chrome.storage.local.set({label_overrides:ov}); });
+                selectorInput.addEventListener('change', async()=>{ const store=await chrome.storage.local.get('label_overrides'); const ov=store.label_overrides||{}; ov[el.selector]={ ...(ov[el.selector]||{}), newSelector: selectorInput.value }; await chrome.storage.local.set({label_overrides:ov}); });
+                contextInput.addEventListener('change', async()=>{ const store=await chrome.storage.local.get('label_overrides'); const ov=store.label_overrides||{}; ov[el.selector]={ ...(ov[el.selector]||{}), contextDocument: contextInput.value }; await chrome.storage.local.set({label_overrides:ov}); });
+                // Validate using combined full selector for validation
+                const validateBoth = async()=>{ const rawIframeSelector = extractRawIframeSelector(contextInput.value); const fullSel = rawIframeSelector ? `${rawIframeSelector} >>> ${selectorInput.value}` : selectorInput.value; await validateSingleRawSelector(computeRawSelector(fullSel), status); };
+                selectorInput.addEventListener('change', validateBoth);
+                contextInput.addEventListener('change', validateBoth);
+                groupSelect.addEventListener('change', ()=>{ pendingMoves.push({ pageId: page.pageId, fromGroupId: group.groupId, key: elementKey(el), toGroupId: Number(groupSelect.value), toIndex: Number(orderInput.value)}); });
+                orderInput.addEventListener('change', ()=>{ pendingMoves.push({ pageId: page.pageId, fromGroupId: group.groupId, key: elementKey(el), toGroupId: Number(groupSelect.value), toIndex: Number(orderInput.value)}); });
+
+                selectorWrap.appendChild(contextInput);
+                selectorWrap.appendChild(selectorInput);
+                row.appendChild(labelInput);
+                row.appendChild(sampleInput);
+                row.appendChild(typeSelect);
+                row.appendChild(groupSelect);
+                row.appendChild(orderInput);
+                row.appendChild(selectorWrap);
+                row.appendChild(status);
+                row.appendChild(actions);
+                list.appendChild(row);
+                lastPreview.push({ rawSelector: computeRawSelector(selectorInput.value), statusEl: status, rowEl: row });
+            });
+
+            dGroup.appendChild(list); dPage.appendChild(dGroup);
+        });
+        container.appendChild(dPage);
+    });
+}
