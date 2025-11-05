@@ -166,7 +166,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
-    // Run Entry actions on the active tab (top frame)
+    // Run Entry actions on the active tab (all frames)
     if (message.action === 'RUN_ENTRY') {
         const tabId = message.tabId || sender?.tab?.id;
         const frames = tabFrames.get(tabId) || new Set([0]);
@@ -179,8 +179,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 acc.appliedActions += (r.appliedActions || 0);
                 acc.missingElements += (r.missingElements || 0);
                 acc.blockedContexts += (r.blockedContexts || 0);
+                acc.skippedFrame += (r.skippedFrame || 0);
                 return acc;
-            }, { totalActions: 0, appliedActions: 0, missingElements: 0, blockedContexts: 0 });
+            }, { totalActions: 0, appliedActions: 0, missingElements: 0, blockedContexts: 0, skippedFrame: 0 });
+            console.log('ENTRY: Aggregated results from all frames:', agg);
             sendResponse({ success: true, ...agg });
         }).catch(() => sendResponse({ success: false }));
         return true; // async response

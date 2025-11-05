@@ -143,25 +143,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function runEntryActions(dataGroups, functionsJSON) {
     try { registerDynamicFunctions(functionsJSON); } catch {}
-    const result = { totalActions: 0, appliedActions: 0, missingElements: 0, blockedContexts: 0 };
+    const result = { totalActions: 0, appliedActions: 0, missingElements: 0, blockedContexts: 0, skippedFrame: 0 };
     if (!Array.isArray(dataGroups)) return result;
     const isTop = (window.top === window.self);
+    const frameContext = isTop ? 'TOP_FRAME' : `IFRAME(${window.location.href})`;
+    try { console.log(`ENTRY [${frameContext}]: Starting with ${dataGroups.length} groups`); } catch {}
+
     dataGroups.forEach(group => {
         const actions = group.Actions || [];
         actions.forEach(action => {
             if (action && action.InputValue !== undefined && action.InputValue !== null && action.InputValue !== 'null') {
                 // Filter actions to the correct frame
                 const ctx = action.ContextDocument || 'document';
-                if (!shouldApplyInThisFrame(ctx, isTop)) return;
+                const shouldApply = shouldApplyInThisFrame(ctx, isTop);
+
+                if (!shouldApply) {
+                    result.skippedFrame++;
+                    return;
+                }
+
                 result.totalActions++;
+                try {
+                    console.log(`ENTRY [${frameContext}]: Applying action to ${action.TargetElement}, type=${action.ActionType}, value=${action.InputValue}`);
+                } catch {}
+
                 const applied = handleEntryAction(action);
-                if (applied === true) result.appliedActions++;
-                else if (applied === 'blocked') result.blockedContexts++;
-                else result.missingElements++;
+                if (applied === true) {
+                    result.appliedActions++;
+                } else if (applied === 'blocked') {
+                    result.blockedContexts++;
+                    try { console.warn(`ENTRY [${frameContext}]: Blocked context for ${action.TargetElement}`); } catch {}
+                } else {
+                    result.missingElements++;
+                    try { console.warn(`ENTRY [${frameContext}]: Element not found: ${action.TargetElement}`); } catch {}
+                }
             }
         });
     });
-    try { console.log('ENTRY: summary', result); } catch {}
+    try { console.log(`ENTRY [${frameContext}]: summary`, result); } catch {}
     return result;
 }
 
@@ -172,27 +191,127 @@ function shouldApplyInThisFrame(ctx, isTop) {
         const m = String(ctx).match(/document\.querySelector\((['"])(.+?)\1\)\.contentWindow\.document/);
         if (!m) return !isTop; // if we cannot parse but context is not 'document', assume child
         const sel = m[2];
-        // Try to infer target by src attribute hints
-        let match;
-        if ((match = sel.match(/src\s*\*\=\s*['"]([^'"]+)['"]/))) {
-            return window.location.href.includes(match[1]);
+
+        // If we're in the top frame, don't apply actions meant for iframes
+        if (isTop) return false;
+
+        // We're in an iframe - check if this is the target iframe
+        try {
+            const fe = window.frameElement;
+            if (!fe) {
+                // Can't access frameElement (cross-origin) - try URL matching as fallback
+                return matchFrameByUrl(sel);
+            }
+
+            // Check if selector matches this iframe element
+            let match;
+
+            // Try matching by ID: iframe#myid
+            if ((match = sel.match(/^iframe#([a-zA-Z0-9_-]+)/))) {
+                const id = match[1];
+                if (fe.id === id) return true;
+            }
+
+            // Try matching by ID: #myid (without iframe prefix)
+            if (sel.startsWith('#')) {
+                const id = sel.substring(1).split(/[^\w-]/)[0]; // Extract just the ID part
+                if (fe.id === id) return true;
+            }
+
+            // Try matching by name attribute: iframe[name="..."]
+            if ((match = sel.match(/\[name\s*=\s*['"]([^'"]+)['"]\]/))) {
+                const name = match[1];
+                const feName = fe.getAttribute && fe.getAttribute('name');
+                if (feName === name) return true;
+            }
+
+            // Try matching by title attribute: iframe[title="..."]
+            if ((match = sel.match(/\[title\s*=\s*['"]([^'"]+)['"]\]/))) {
+                const title = match[1];
+                const feTitle = fe.getAttribute && fe.getAttribute('title');
+                if (feTitle === title) return true;
+            }
+
+            // Try matching by class: iframe.classname
+            if ((match = sel.match(/^iframe\.([a-zA-Z0-9_-]+)/))) {
+                const className = match[1];
+                if (fe.classList && fe.classList.contains(className)) return true;
+            }
+
+            // Try matching by nth-of-type: iframe:nth-of-type(n)
+            if ((match = sel.match(/^iframe:nth-of-type\((\d+)\)/))) {
+                const targetIndex = parseInt(match[1], 10) - 1; // Convert to 0-based
+                try {
+                    const parent = fe.parentElement;
+                    if (parent) {
+                        const iframes = Array.from(parent.querySelectorAll('iframe'));
+                        const actualIndex = iframes.indexOf(fe);
+                        if (actualIndex === targetIndex) return true;
+                    }
+                } catch {}
+            }
+
+            // Try matching by src attribute patterns
+            const feSrc = fe.getAttribute && fe.getAttribute('src');
+            if (feSrc && matchFrameBySrcAttribute(sel, feSrc)) {
+                return true;
+            }
+
+            // Fallback to URL matching
+            return matchFrameByUrl(sel);
+
+        } catch (e) {
+            // Cross-origin error - fall back to URL matching
+            return matchFrameByUrl(sel);
         }
-        if ((match = sel.match(/src\s*\^\=\s*['"]([^'"]+)['"]/))) {
-            return window.location.href.startsWith(match[1]);
-        }
-        if ((match = sel.match(/src\s*\$\=\s*['"]([^'"]+)['"]/))) {
-            return window.location.href.endsWith(match[1]);
-        }
-        if ((match = sel.match(/src\s*\=\s*['"]([^'"]+)['"]/))) {
-            return window.location.href === match[1];
-        }
-        // Fallback: any quoted token contains in URL
-        if ((match = sel.match(/['"]([^'"]+)['"]/))) {
-            return window.location.href.includes(match[1]);
-        }
-        return !isTop;
     } catch {}
     return !isTop;
+}
+
+function matchFrameBySrcAttribute(selector, frameSrc) {
+    let match;
+    // Check various src attribute patterns
+    if ((match = selector.match(/src\s*\*\=\s*['"]([^'"]+)['"]/))) {
+        return frameSrc.includes(match[1]);
+    }
+    if ((match = selector.match(/src\s*\^\=\s*['"]([^'"]+)['"]/))) {
+        return frameSrc.startsWith(match[1]);
+    }
+    if ((match = selector.match(/src\s*\$\=\s*['"]([^'"]+)['"]/))) {
+        return frameSrc.endsWith(match[1]);
+    }
+    if ((match = selector.match(/src\s*\=\s*['"]([^'"]+)['"]/))) {
+        return frameSrc === match[1];
+    }
+    return false;
+}
+
+function matchFrameByUrl(selector) {
+    // Try to match current frame's URL against patterns in the selector
+    const currentUrl = window.location.href;
+    let match;
+
+    if ((match = selector.match(/src\s*\*\=\s*['"]([^'"]+)['"]/))) {
+        return currentUrl.includes(match[1]);
+    }
+    if ((match = selector.match(/src\s*\^\=\s*['"]([^'"]+)['"]/))) {
+        return currentUrl.startsWith(match[1]);
+    }
+    if ((match = selector.match(/src\s*\$\=\s*['"]([^'"]+)['"]/))) {
+        return currentUrl.endsWith(match[1]);
+    }
+    if ((match = selector.match(/src\s*\=\s*['"]([^'"]+)['"]/))) {
+        return currentUrl === match[1];
+    }
+
+    // Fallback: any quoted token in URL
+    if ((match = selector.match(/['"]([^'"]+)['"]/))) {
+        return currentUrl.includes(match[1]);
+    }
+
+    // If no pattern matched, assume this iframe should handle it
+    // (better to try and fail than to skip entirely)
+    return true;
 }
 
 function resolveLayerEntry(layer) {
@@ -956,17 +1075,71 @@ function getFrameSelectorPrefix() {
     try {
         const fe = window.frameElement;
         if (fe) {
-            if (fe.id) return `#${fe.id}`;
-            if (fe.getAttribute && fe.getAttribute('name')) return `iframe[name="${fe.getAttribute('name')}"]`;
+            // Priority 1: ID (most specific and reliable)
+            if (fe.id && fe.id.trim()) {
+                return `iframe#${fe.id}`;
+            }
+
+            // Priority 2: Name attribute
+            const name = fe.getAttribute && fe.getAttribute('name');
+            if (name && name.trim()) {
+                return `iframe[name="${name}"]`;
+            }
+
+            // Priority 3: Title attribute (sometimes used for accessibility)
+            const title = fe.getAttribute && fe.getAttribute('title');
+            if (title && title.trim()) {
+                return `iframe[title="${title}"]`;
+            }
+
+            // Priority 4: Class (if it has a unique or descriptive class)
+            if (fe.className && fe.className.trim()) {
+                const classes = fe.className.trim().split(/\s+/);
+                if (classes.length > 0) {
+                    // Use first class as identifier
+                    return `iframe.${classes[0]}`;
+                }
+            }
+
+            // Priority 5: Src attribute patterns
             const src = fe.getAttribute && fe.getAttribute('src');
             if (src) {
-                try { const u = new URL(src, document.baseURI); return `iframe[src*="${u.hostname}"]`; } catch {}
-                return `iframe[src*="${(src || '').substring(0, 30)}"]`;
+                try {
+                    const u = new URL(src, document.baseURI);
+                    // Use hostname + path for more specificity
+                    const path = u.pathname.split('/').filter(p => p).slice(-1)[0] || '';
+                    if (path) {
+                        return `iframe[src*="${u.hostname}"][src*="${path}"]`;
+                    }
+                    return `iframe[src*="${u.hostname}"]`;
+                } catch {
+                    // Fallback to partial src match
+                    const shortSrc = src.length > 30 ? src.substring(0, 30) : src;
+                    return `iframe[src*="${shortSrc}"]`;
+                }
             }
+
+            // Priority 6: Use index among siblings as last resort
+            try {
+                const parent = fe.parentElement;
+                if (parent) {
+                    const iframes = Array.from(parent.querySelectorAll('iframe'));
+                    const index = iframes.indexOf(fe);
+                    if (index >= 0) {
+                        return `iframe:nth-of-type(${index + 1})`;
+                    }
+                }
+            } catch {}
+
+            // Absolute fallback
             return 'iframe';
         }
     } catch (e) {
-        try { return `iframe[src*="${new URL(window.location.href).hostname}"]`; } catch {}
+        // Cross-origin: try to use current URL as identifier
+        try {
+            const currentUrl = new URL(window.location.href);
+            return `iframe[src*="${currentUrl.hostname}"]`;
+        } catch {}
     }
     return 'iframe';
 }

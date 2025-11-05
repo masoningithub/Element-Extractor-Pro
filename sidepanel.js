@@ -1727,11 +1727,21 @@ async function runEntryTest() {
         const resp = await chrome.runtime.sendMessage({ action: 'RUN_ENTRY', tabId: tab.id, dataGroups, functions: converted.functions || {} });
         if (resp && resp.success) {
             const totals = `applied ${resp.appliedActions||0}/${resp.totalActions||0}`;
-            const blocked = resp.blockedContexts ? `, blocked contexts: ${resp.blockedContexts}` : '';
+            const blocked = resp.blockedContexts ? `, blocked: ${resp.blockedContexts}` : '';
             const missing = resp.missingElements ? `, missing: ${resp.missingElements}` : '';
-            updateStatus(`Entry applied successfully (${totals}${blocked}${missing}).`, 'success');
+            const skipped = resp.skippedFrame ? `, skipped (wrong frame): ${resp.skippedFrame}` : '';
+
+            console.log('ENTRY: Full results:', resp);
+
+            if (resp.appliedActions === resp.totalActions && resp.totalActions > 0) {
+                updateStatus(`Entry applied successfully! (${totals})`, 'success');
+            } else if (resp.appliedActions > 0) {
+                updateStatus(`Entry partially applied (${totals}${blocked}${missing}${skipped}). Check console for details.`, 'warning');
+            } else {
+                updateStatus(`Entry failed to apply any actions (${totals}${blocked}${missing}${skipped}). Check console for details.`, 'error');
+            }
         } else {
-            updateStatus('Entry finished with warnings.', 'warning');
+            updateStatus('Entry finished with errors.', 'error');
         }
     } catch (e) {
         console.error(e);
