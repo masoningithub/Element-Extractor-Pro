@@ -351,10 +351,36 @@ function resolveElementEntry(doc, selector) {
 
 function handleEntryAction(action) {
     const ctx = action.ContextDocument || 'document';
-    const doc = resolveLayerEntry(ctx);
-    if (doc === 'BLOCKED_IFRAME') return 'blocked';
+    const isTop = (window.top === window.self);
+
+    // By the time we get here, runEntryActions has already filtered by frame using shouldApplyInThisFrame
+    // So we know this frame should handle the action. Just use the local document.
+    // The only exception is when we're in the top frame trying to access an iframe's content.
+    let doc;
+    if (isTop && ctx !== 'document') {
+        // We're in top frame and action is for an iframe - try to access iframe document
+        doc = resolveLayerEntry(ctx);
+        if (doc === 'BLOCKED_IFRAME') return 'blocked';
+        if (!doc) {
+            console.warn('ENTRY: Could not resolve iframe document from top frame', { ctx });
+            return false;
+        }
+    } else {
+        // Either we're in top frame with ctx='document', or we're in an iframe with ctx pointing to this iframe
+        // In both cases, use local document
+        doc = document;
+    }
+
     const el = resolveElementEntry(doc, action.TargetElement);
-    if (!el && action.ActionType !== 'Button') { console.warn('ENTRY: element not found', { ctx, sel: action.TargetElement }); return false; }
+    if (!el && action.ActionType !== 'Button') {
+        console.warn('ENTRY: element not found', {
+            ctx,
+            sel: action.TargetElement,
+            inFrame: !isTop,
+            frameUrl: window.location.href
+        });
+        return false;
+    }
     const val = action.InputValue;
     try {
         switch (action.ActionType) {
@@ -365,6 +391,11 @@ function handleEntryAction(action) {
             case 'Button': if (el) el.click(); break;
             default: setInputValue(el, String(val));
         }
+        console.log('ENTRY: Successfully applied action', {
+            sel: action.TargetElement,
+            type: action.ActionType,
+            inFrame: !isTop
+        });
         return true;
     } catch (e) {
         console.warn('ENTRY: error applying action', action, e);

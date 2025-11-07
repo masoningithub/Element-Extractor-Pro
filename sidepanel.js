@@ -1225,7 +1225,10 @@ function convertJsonToCsv(inputData, overrides = {}) {
                 const groupName = extraction.groupName || `Extracted_Group_${extraction.groupId}`;
 
                 extraction.elements.forEach(element => {
-                    const ov = overrides[element.selector] || byNewSelector[element.selector] || {};
+                    // Look up override using the proper key format: "contextDocument >>> selector"
+                    const ctx = element.contextDocument || 'document';
+                    const key = overrideKey(ctx, element.selector);
+                    const ov = overrides[key] || overrides[element.selector] || byNewSelector[element.selector] || {};
                     const effType = ov.type || element.type;
                     const actionType = determineActionType(effType);
                     const actionId = `A_EXTRACTED_${globalActionCounter}`;
@@ -1241,6 +1244,8 @@ function convertJsonToCsv(inputData, overrides = {}) {
                     }
 
                     const htmlSnippet = element.html || '';
+                    // Get sample value from overrides or from element (if already saved)
+                    const sampleValue = ov.sample !== undefined ? ov.sample : (element.sample || '');
 
                     elementMapping.push({
                         ActionID: actionId,
@@ -1249,6 +1254,7 @@ function convertJsonToCsv(inputData, overrides = {}) {
                         Label: label,
                         ActionType: actionType,
                         ElementType: element.type || '',
+                        SampleValue: sampleValue,
                         Position: `x:${element.position?.x || ''}, y:${element.position?.y || ''}`,
                         Domain: domain,
                         PageName: pageName,
@@ -1265,11 +1271,11 @@ function convertJsonToCsv(inputData, overrides = {}) {
 
 function convertToCsvFormat(data) {
     if (!data || data.length === 0) {
-        return 'ActionID,TargetElement,Label,ActionType,ElementType,Position,Domain,PageName,GroupName,HTML\n';
+        return 'ActionID,TargetElement,ContextDocument,Label,ActionType,ElementType,SampleValue,Position,Domain,PageName,GroupName,HTML\n';
     }
 
-    const headers = ['ActionID', 'TargetElement', 'Label', 'ActionType', 'ElementType',
-                    'Position', 'Domain', 'PageName', 'GroupName', 'HTML'];
+    const headers = ['ActionID', 'TargetElement', 'ContextDocument', 'Label', 'ActionType', 'ElementType',
+                    'SampleValue', 'Position', 'Domain', 'PageName', 'GroupName', 'HTML'];
     let csv = headers.join(',') + '\n';
 
     data.forEach(row => {
@@ -1475,6 +1481,7 @@ function convertElementToAction(element, actionCounter) {
         Label: label,
         ActionType: actionType,
         ElementType: element.type || '',
+        SampleValue: element.sample || '',
         Position: `x:${element.position?.x || ''}, y:${element.position?.y || ''}`,
         HTML: htmlSnippet
     };
@@ -1499,11 +1506,11 @@ function generateJsFunction(jsonTemplate) {
 
 function convertMappingToCsv(mappingData) {
     if (!mappingData || mappingData.length === 0) {
-        return 'ActionID,TargetElement,Label,ActionType,ElementType,Position,Domain,PageName,GroupName,HTML\n';
+        return 'ActionID,TargetElement,ContextDocument,Label,ActionType,ElementType,SampleValue,Position,Domain,PageName,GroupName,HTML\n';
     }
 
-    const headers = ['ActionID', 'TargetElement', 'Label', 'ActionType', 'ElementType',
-                    'Position', 'Domain', 'PageName', 'GroupName', 'HTML'];
+    const headers = ['ActionID', 'TargetElement', 'ContextDocument', 'Label', 'ActionType', 'ElementType',
+                    'SampleValue', 'Position', 'Domain', 'PageName', 'GroupName', 'HTML'];
     let csv = headers.join(',') + '\n';
 
     mappingData.forEach(row => {
